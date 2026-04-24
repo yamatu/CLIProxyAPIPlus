@@ -150,7 +150,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(baseModel)
+	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
@@ -360,7 +360,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(baseModel)
+	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"

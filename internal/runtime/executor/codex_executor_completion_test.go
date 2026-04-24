@@ -15,12 +15,20 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestCodexCompatibleUpstreamModel(t *testing.T) {
-	if got := codexCompatibleUpstreamModel("gpt-5.5"); got != "gpt-5-codex" {
+func TestCodexCompatibleUpstreamModelAPIKey(t *testing.T) {
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "test-key"}}
+	if got := codexCompatibleUpstreamModel(auth, "gpt-5.5"); got != "gpt-5-codex" {
 		t.Fatalf("compat model = %q, want gpt-5-codex", got)
 	}
-	if got := codexCompatibleUpstreamModel("gpt-5-codex"); got != "gpt-5-codex" {
-		t.Fatalf("existing codex model changed unexpectedly: %q", got)
+}
+
+func TestCodexCompatibleUpstreamModelChatGPTAccount(t *testing.T) {
+	auth := &cliproxyauth.Auth{Metadata: map[string]any{"access_token": "test-access-token"}}
+	if got := codexCompatibleUpstreamModel(auth, "gpt-5.5"); got != "gpt-5" {
+		t.Fatalf("compat model = %q, want gpt-5", got)
+	}
+	if got := codexCompatibleUpstreamModel(auth, "gpt-5-codex"); got != "gpt-5" {
+		t.Fatalf("codex model = %q, want gpt-5", got)
 	}
 }
 
@@ -93,6 +101,42 @@ func TestCodexExecutorExecuteAcceptsResponseDone(t *testing.T) {
 	}
 	if upstreamModel != "gpt-5-codex" {
 		t.Fatalf("upstream model = %q, want gpt-5-codex", upstreamModel)
+	}
+}
+
+func TestCodexExecutorExecuteMapsChatGPTAccountModel(t *testing.T) {
+	var upstreamModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamModel = gjson.GetBytes(mustReadAll(t, r.Body), "model").String()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.done\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":2,\"total_tokens\":3}}}\n\n")
+	}))
+	defer server.Close()
+
+	exec := NewCodexExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{
+			"base_url": server.URL,
+		},
+		Metadata: map[string]any{
+			"access_token": "test-access-token",
+		},
+	}
+	req := cliproxyexecutor.Request{
+		Model: "gpt-5.5",
+		Payload: []byte(`{
+			"model":"gpt-5.5",
+			"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]
+		}`),
+	}
+	opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("codex")}
+
+	if _, err := exec.Execute(context.Background(), auth, req, opts); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if upstreamModel != "gpt-5" {
+		t.Fatalf("upstream model = %q, want gpt-5", upstreamModel)
 	}
 }
 

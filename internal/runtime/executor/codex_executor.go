@@ -34,13 +34,32 @@ const (
 
 var dataTag = []byte("data:")
 
-func codexCompatibleUpstreamModel(model string) string {
-	switch strings.TrimSpace(model) {
-	case "gpt-5.5":
-		return "gpt-5-codex"
+func codexCompatibleUpstreamModel(auth *cliproxyauth.Auth, model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return model
+	}
+	if codexUsesAPIKeyAuth(auth) {
+		switch model {
+		case "gpt-5.5":
+			return "gpt-5-codex"
+		default:
+			return model
+		}
+	}
+	switch model {
+	case "gpt-5.5", "gpt-5-codex":
+		return "gpt-5"
 	default:
 		return model
 	}
+}
+
+func codexUsesAPIKeyAuth(auth *cliproxyauth.Auth) bool {
+	if auth == nil || auth.Attributes == nil {
+		return false
+	}
+	return strings.TrimSpace(auth.Attributes["api_key"]) != ""
 }
 
 // Streamed Codex responses may emit response.output_item.done events while leaving
@@ -149,7 +168,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		return e.executeCompact(ctx, auth, req, opts)
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(baseModel)
+	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
@@ -269,7 +288,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(baseModel)
+	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
@@ -362,7 +381,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		return nil, statusErr{code: http.StatusBadRequest, msg: "streaming not supported for /responses/compact"}
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(baseModel)
+	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
