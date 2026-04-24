@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,15 +29,15 @@ import (
 )
 
 const (
-	codexClientVersion = "0.101.0"
-	codexUserAgent     = "codex_cli_rs/0.101.0 (Mac OS 26.0.1; arm64) Apple_Terminal/464"
+	codexUserAgent  = "codex-tui/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9 (codex-tui; 0.118.0)"
+	codexOriginator = "codex-tui"
 )
 
 var dataTag = []byte("data:")
 
 // Streamed Codex responses may emit response.output_item.done events while leaving
-// response.completed.response.output empty. Reconstruct response.output so the
-// non-stream path can still translate a complete final payload.
+// response.completed.response.output empty. Keep the stream path aligned with the
+// already-patched non-stream path by reconstructing response.output from those items.
 func collectCodexOutputItemDone(eventData []byte, outputItemsByIndex map[int64][]byte, outputItemsFallback *[][]byte) {
 	itemResult := gjson.GetBytes(eventData, "item")
 	if !itemResult.Exists() || itemResult.Type != gjson.JSON {
@@ -52,33 +53,49 @@ func collectCodexOutputItemDone(eventData []byte, outputItemsByIndex map[int64][
 
 func patchCodexCompletedOutput(eventData []byte, outputItemsByIndex map[int64][]byte, outputItemsFallback [][]byte) []byte {
 	outputResult := gjson.GetBytes(eventData, "response.output")
-	shouldPatchOutput := (!outputResult.Exists() || !outputResult.IsArray() || len(outputResult.Array()) == 0) &&
-		(len(outputItemsByIndex) > 0 || len(outputItemsFallback) > 0)
+	shouldPatchOutput := (!outputResult.Exists() || !outputResult.IsArray() || len(outputResult.Array()) == 0) && (len(outputItemsByIndex) > 0 || len(outputItemsFallback) > 0)
 	if !shouldPatchOutput {
 		return eventData
 	}
-
-	patched, _ := sjson.SetRawBytes(eventData, "response.output", []byte(`[]`))
 
 	indexes := make([]int64, 0, len(outputItemsByIndex))
 	for idx := range outputItemsByIndex {
 		indexes = append(indexes, idx)
 	}
-	for i := 0; i < len(indexes)-1; i++ {
-		for j := i + 1; j < len(indexes); j++ {
-			if indexes[j] < indexes[i] {
-				indexes[i], indexes[j] = indexes[j], indexes[i]
-			}
+	sort.Slice(indexes, func(i, j int) bool {
+		return indexes[i] < indexes[j]
+	})
+
+	items := make([][]byte, 0, len(outputItemsByIndex)+len(outputItemsFallback))
+	for _, idx := range indexes {
+		items = append(items, outputItemsByIndex[idx])
+	}
+	items = append(items, outputItemsFallback...)
+
+	outputArray := []byte("[]")
+	if len(items) > 0 {
+		var buf bytes.Buffer
+		totalLen := 2
+		for _, item := range items {
+			totalLen += len(item)
 		}
+		if len(items) > 1 {
+			totalLen += len(items) - 1
+		}
+		buf.Grow(totalLen)
+		buf.WriteByte('[')
+		for i, item := range items {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			buf.Write(item)
+		}
+		buf.WriteByte(']')
+		outputArray = buf.Bytes()
 	}
 
-	for _, idx := range indexes {
-		patched, _ = sjson.SetRawBytes(patched, "response.output.-1", outputItemsByIndex[idx])
-	}
-	for _, item := range outputItemsFallback {
-		patched, _ = sjson.SetRawBytes(patched, "response.output.-1", item)
-	}
-	return patched
+	completedDataPatched, _ := sjson.SetRawBytes(eventData, "response.output", outputArray)
+	return completedDataPatched
 }
 
 func normalizeCodexCompletionEvent(eventData []byte) []byte {
@@ -233,26 +250,30 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 		eventData := bytes.TrimSpace(line[5:])
 		eventType := gjson.GetBytes(eventData, "type").String()
+
 		if eventType == "response.output_item.done" {
 			collectCodexOutputItemDone(eventData, outputItemsByIndex, &outputItemsFallback)
 			continue
 		}
-		eventData = normalizeCodexCompletionEvent(eventData)
-		if gjson.GetBytes(eventData, "type").String() != "response.completed" {
+
+		if eventType != "response.completed" && eventType != "response.done" {
 			continue
 		}
-		eventData = patchCodexCompletedOutput(eventData, outputItemsByIndex, outputItemsFallback)
+
+		eventData = normalizeCodexCompletionEvent(eventData)
 
 		if detail, ok := parseCodexUsage(eventData); ok {
 			reporter.publish(ctx, detail)
 		}
+
+		eventData = patchCodexCompletedOutput(eventData, outputItemsByIndex, outputItemsFallback)
 
 		var param any
 		out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, originalPayload, body, eventData, &param)
 		resp = cliproxyexecutor.Response{Payload: []byte(out), Headers: httpResp.Header.Clone()}
 		return resp, nil
 	}
-	err = statusErr{code: 408, msg: "stream error: stream disconnected before completion: stream closed before response.completed"}
+	err = statusErr{code: 408, msg: "stream error: stream disconnected before completion: stream closed before response.completed/response.done"}
 	return resp, err
 }
 
@@ -285,6 +306,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
 	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.DeleteBytes(body, "stream")
+	body = stripDeferredToolLoading(body)
 	body = normalizeCodexInstructions(body)
 	body = ensureImageGenerationTool(body, baseModel)
 
@@ -734,7 +756,6 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 		return nil, err
 	}
 	if cache.ID != "" {
-		httpReq.Header.Set("Conversation_id", cache.ID)
 		httpReq.Header.Set("Session_id", cache.ID)
 	}
 	return httpReq, nil
@@ -749,10 +770,17 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 		ginHeaders = ginCtx.Request.Header
 	}
 
-	misc.EnsureHeader(r.Header, ginHeaders, "Version", codexClientVersion)
-	misc.EnsureHeader(r.Header, ginHeaders, "Session_id", uuid.NewString())
+	if ginHeaders.Get("X-Codex-Beta-Features") != "" {
+		r.Header.Set("X-Codex-Beta-Features", ginHeaders.Get("X-Codex-Beta-Features"))
+	}
+	misc.EnsureHeader(r.Header, ginHeaders, "Version", "")
+	misc.EnsureHeader(r.Header, ginHeaders, "X-Codex-Turn-Metadata", "")
+	misc.EnsureHeader(r.Header, ginHeaders, "X-Client-Request-Id", "")
 	cfgUserAgent, _ := codexHeaderDefaults(cfg, auth)
 	ensureHeaderWithConfigPrecedence(r.Header, ginHeaders, "User-Agent", cfgUserAgent, codexUserAgent)
+	if strings.Contains(r.Header.Get("User-Agent"), "Mac OS") {
+		misc.EnsureHeader(r.Header, ginHeaders, "Session_id", uuid.NewString())
+	}
 
 	if stream {
 		r.Header.Set("Accept", "text/event-stream")
@@ -767,8 +795,12 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 			isAPIKey = true
 		}
 	}
+	if originator := strings.TrimSpace(ginHeaders.Get("Originator")); originator != "" {
+		r.Header.Set("Originator", originator)
+	} else if !isAPIKey {
+		r.Header.Set("Originator", codexOriginator)
+	}
 	if !isAPIKey {
-		r.Header.Set("Originator", "codex_cli_rs")
 		if auth != nil && auth.Metadata != nil {
 			if accountID, ok := auth.Metadata["account_id"].(string); ok {
 				r.Header.Set("Chatgpt-Account-Id", accountID)

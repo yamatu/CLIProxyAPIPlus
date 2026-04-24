@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-const codexBuiltinImageModelID = "gpt-image-2"
+const (
+	codexBuiltinImageModelID = "gpt-image-2"
+	codexBuiltinGPT55ModelID = "gpt-5.5"
+)
 
 // staticModelsJSON mirrors the top-level structure of models.json.
 type staticModelsJSON struct {
@@ -94,14 +97,33 @@ func GetAntigravityModels() []*ModelInfo {
 // not depend on remote models.json updates. Built-ins replace any matching IDs
 // already present in the provided slice.
 func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
-	return upsertModelInfos(models, codexBuiltinImageModelInfo())
+	return upsertModelInfos(models, codexBuiltinGPT55ModelInfo(), codexBuiltinImageModelInfo())
+}
+
+func codexBuiltinGPT55ModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:                  codexBuiltinGPT55ModelID,
+		Object:              "model",
+		Created:             1776902400,
+		OwnedBy:             "openai",
+		Type:                "openai",
+		DisplayName:         "GPT 5.5",
+		Version:             codexBuiltinGPT55ModelID,
+		Description:         "Frontier model for complex coding, research, and real-world work.",
+		ContextLength:       272000,
+		MaxCompletionTokens: 128000,
+		SupportedParameters: []string{"tools"},
+		Thinking: &ThinkingSupport{
+			Levels: []string{"low", "medium", "high", "xhigh"},
+		},
+	}
 }
 
 func codexBuiltinImageModelInfo() *ModelInfo {
 	return &ModelInfo{
 		ID:          codexBuiltinImageModelID,
 		Object:      "model",
-		Created:     1704067200, // 2024-01-01
+		Created:     1704067200,
 		OwnedBy:     "openai",
 		Type:        "openai",
 		DisplayName: "GPT Image 2",
@@ -234,7 +256,7 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.Vertex,
 		data.GeminiCLI,
 		data.AIStudio,
-		data.CodexPro,
+		GetCodexProModels(),
 		data.Qwen,
 		data.IFlow,
 		data.Kimi,
@@ -674,7 +696,7 @@ func GetKiroModels() []*ModelInfo {
 			MaxCompletionTokens: 64000,
 			Thinking:            &ThinkingSupport{Min: 1024, Max: 32000, ZeroAllowed: true, DynamicAllowed: true},
 		},
-		// --- 第三方模型 (通过 Kiro 接入) ---
+		// --- 绗笁鏂规ā鍨?(閫氳繃 Kiro 鎺ュ叆) ---
 		{
 			ID:                  "kiro-deepseek-3-2",
 			Object:              "model",

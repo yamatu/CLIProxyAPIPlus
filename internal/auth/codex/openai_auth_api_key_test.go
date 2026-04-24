@@ -8,9 +8,21 @@ func TestExtractCodexAPIKey(t *testing.T) {
 		body string
 		want string
 	}{
-		{name: "top level api_key", body: `{"api_key":"sk-test-1"}`, want: "sk-test-1"},
-		{name: "nested api_key_data", body: `{"api_key_data":{"key":"sk-test-2"}}`, want: "sk-test-2"},
-		{name: "missing", body: `{"access_token":"tok"}`, want: ""},
+		{
+			name: "top level api_key",
+			body: `{"api_key":"sk-test-1"}`,
+			want: "sk-test-1",
+		},
+		{
+			name: "nested api_key_data",
+			body: `{"api_key_data":{"key":"sk-test-2"}}`,
+			want: "sk-test-2",
+		},
+		{
+			name: "missing",
+			body: `{"access_token":"tok"}`,
+			want: "",
+		},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package executor
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
@@ -242,6 +243,25 @@ func payloadRawValue(value any) ([]byte, bool) {
 		}
 		return raw, true
 	}
+}
+
+func stripDeferredToolLoading(payload []byte) []byte {
+	tools := gjson.GetBytes(payload, "tools")
+	if !tools.IsArray() {
+		return payload
+	}
+	out := payload
+	for i, tool := range tools.Array() {
+		if !tool.Get("defer_loading").Exists() {
+			continue
+		}
+		updated, err := sjson.DeleteBytes(out, fmt.Sprintf("tools.%d.defer_loading", i))
+		if err != nil {
+			continue
+		}
+		out = updated
+	}
+	return out
 }
 
 func payloadRequestedModel(opts cliproxyexecutor.Options, fallback string) string {

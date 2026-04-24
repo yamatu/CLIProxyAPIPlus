@@ -808,16 +808,17 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 
 	var ginHeaders http.Header
 	if ginCtx := ginContextFrom(ctx); ginCtx != nil && ginCtx.Request != nil {
-		ginHeaders = ginCtx.Request.Header
+		ginHeaders = ginCtx.Request.Header.Clone()
 	}
 
-	cfgUserAgent, cfgBetaFeatures := codexHeaderDefaults(cfg, auth)
+	_, cfgBetaFeatures := codexHeaderDefaults(cfg, auth)
 	ensureHeaderWithPriority(headers, ginHeaders, "x-codex-beta-features", cfgBetaFeatures, "")
 	misc.EnsureHeader(headers, ginHeaders, "x-codex-turn-state", "")
 	misc.EnsureHeader(headers, ginHeaders, "x-codex-turn-metadata", "")
+	misc.EnsureHeader(headers, ginHeaders, "x-client-request-id", "")
 	misc.EnsureHeader(headers, ginHeaders, "x-responsesapi-include-timing-metrics", "")
+	misc.EnsureHeader(headers, ginHeaders, "Version", "")
 
-	misc.EnsureHeader(headers, ginHeaders, "Version", codexClientVersion)
 	betaHeader := strings.TrimSpace(headers.Get("OpenAI-Beta"))
 	if betaHeader == "" && ginHeaders != nil {
 		betaHeader = strings.TrimSpace(ginHeaders.Get("OpenAI-Beta"))
@@ -826,8 +827,10 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 		betaHeader = codexResponsesWebsocketBetaHeaderValue
 	}
 	headers.Set("OpenAI-Beta", betaHeader)
-	misc.EnsureHeader(headers, ginHeaders, "Session_id", uuid.NewString())
-	ensureHeaderWithConfigPrecedence(headers, ginHeaders, "User-Agent", cfgUserAgent, codexUserAgent)
+	if strings.Contains(headers.Get("User-Agent"), "Mac OS") {
+		misc.EnsureHeader(headers, ginHeaders, "Session_id", uuid.NewString())
+	}
+	headers.Del("User-Agent")
 
 	isAPIKey := false
 	if auth != nil && auth.Attributes != nil {
@@ -835,8 +838,12 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 			isAPIKey = true
 		}
 	}
+	if originator := strings.TrimSpace(ginHeaders.Get("Originator")); originator != "" {
+		headers.Set("Originator", originator)
+	} else if !isAPIKey {
+		headers.Set("Originator", codexOriginator)
+	}
 	if !isAPIKey {
-		headers.Set("Originator", "codex_cli_rs")
 		if auth != nil && auth.Metadata != nil {
 			if accountID, ok := auth.Metadata["account_id"].(string); ok {
 				if trimmed := strings.TrimSpace(accountID); trimmed != "" {

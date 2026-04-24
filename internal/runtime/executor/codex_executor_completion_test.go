@@ -123,6 +123,43 @@ func TestCodexExecutorExecutePreservesChatGPTAccountModel(t *testing.T) {
 	}
 }
 
+func TestCodexExecutorCompactStripsDeferredToolLoading(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses/compact" {
+			t.Fatalf("path = %q, want /responses/compact", r.URL.Path)
+		}
+		gotBody = mustReadAll(t, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response.compaction"}`))
+	}))
+	defer server.Close()
+
+	exec := NewCodexExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Attributes: map[string]string{
+			"api_key":  "test-key",
+			"base_url": server.URL,
+		},
+	}
+	payload := []byte(`{"model":"gpt-5.5","input":"hi","tools":[{"type":"function","name":"shell","parameters":{"type":"object"},"defer_loading":true}]}`)
+	req := cliproxyexecutor.Request{
+		Model:   "gpt-5.5",
+		Payload: payload,
+	}
+	opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FromString("openai-response"), Alt: "responses/compact"}
+
+	if _, err := exec.Execute(context.Background(), auth, req, opts); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if gjson.GetBytes(gotBody, "tools.0.defer_loading").Exists() {
+		t.Fatalf("unexpected tools.0.defer_loading in compact body: %s", string(gotBody))
+	}
+	if toolType := gjson.GetBytes(gotBody, "tools.0.type").String(); toolType != "function" {
+		t.Fatalf("tools.0.type = %q, want function", toolType)
+	}
+}
+
 func mustReadAll(t *testing.T, body io.ReadCloser) []byte {
 	t.Helper()
 	data, err := io.ReadAll(body)

@@ -31,9 +31,9 @@ func TestOpenAICompatExecutorCompactPassthrough(t *testing.T) {
 		"base_url": server.URL + "/v1",
 		"api_key":  "test",
 	}}
-	payload := []byte(`{"model":"gpt-5.1-codex-max","input":[{"role":"user","content":"hi"}]}`)
+	payload := []byte(`{"model":"gpt-5.5","input":[{"role":"user","content":"hi"}],"tools":[{"type":"function","name":"shell","parameters":{"type":"object"},"defer_loading":true}]}`)
 	resp, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
-		Model:   "gpt-5.1-codex-max",
+		Model:   "gpt-5.5",
 		Payload: payload,
 	}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FromString("openai-response"),
@@ -51,6 +51,12 @@ func TestOpenAICompatExecutorCompactPassthrough(t *testing.T) {
 	}
 	if gjson.GetBytes(gotBody, "messages").Exists() {
 		t.Fatalf("unexpected messages in body")
+	}
+	if gjson.GetBytes(gotBody, "tools.0.defer_loading").Exists() {
+		t.Fatalf("unexpected tools.0.defer_loading in compact body: %s", string(gotBody))
+	}
+	if toolType := gjson.GetBytes(gotBody, "tools.0.type").String(); toolType != "function" {
+		t.Fatalf("tools.0.type = %q, want function", toolType)
 	}
 	if string(resp.Payload) != `{"id":"resp_1","object":"response.compaction","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}` {
 		t.Fatalf("payload = %s", string(resp.Payload))
