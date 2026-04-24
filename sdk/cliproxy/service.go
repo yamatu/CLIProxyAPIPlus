@@ -924,7 +924,7 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		}
 		if entry := s.resolveConfigCodexKey(a); entry != nil {
 			if len(entry.Models) > 0 {
-				models = buildCodexConfigModels(entry)
+				models = mergeModelInfos(models, buildCodexConfigModels(entry))
 			}
 			if authKind == "apikey" {
 				excluded = entry.ExcludedModels
@@ -1431,6 +1431,87 @@ func buildCodexConfigModels(entry *config.CodexKey) []*ModelInfo {
 		return nil
 	}
 	return buildConfigModels(entry.Models, "openai", "openai")
+}
+
+func mergeModelInfos(base []*ModelInfo, overlay []*ModelInfo) []*ModelInfo {
+	if len(base) == 0 {
+		return cloneServiceModelInfoSlice(overlay)
+	}
+	if len(overlay) == 0 {
+		return cloneServiceModelInfoSlice(base)
+	}
+
+	indexByID := make(map[string]int, len(base)+len(overlay))
+	out := make([]*ModelInfo, 0, len(base)+len(overlay))
+
+	appendOrReplace := func(models []*ModelInfo) {
+		for _, model := range models {
+			if model == nil {
+				continue
+			}
+			id := strings.TrimSpace(model.ID)
+			if id == "" {
+				continue
+			}
+			key := strings.ToLower(id)
+			cloned := cloneServiceModelInfo(model)
+			if idx, exists := indexByID[key]; exists {
+				out[idx] = cloned
+				continue
+			}
+			indexByID[key] = len(out)
+			out = append(out, cloned)
+		}
+	}
+
+	appendOrReplace(base)
+	appendOrReplace(overlay)
+	return out
+}
+
+func cloneServiceModelInfoSlice(models []*ModelInfo) []*ModelInfo {
+	if len(models) == 0 {
+		return nil
+	}
+	out := make([]*ModelInfo, 0, len(models))
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		out = append(out, cloneServiceModelInfo(model))
+	}
+	return out
+}
+
+func cloneServiceModelInfo(model *ModelInfo) *ModelInfo {
+	if model == nil {
+		return nil
+	}
+
+	cloned := *model
+	if len(model.SupportedGenerationMethods) > 0 {
+		cloned.SupportedGenerationMethods = append([]string(nil), model.SupportedGenerationMethods...)
+	}
+	if len(model.SupportedParameters) > 0 {
+		cloned.SupportedParameters = append([]string(nil), model.SupportedParameters...)
+	}
+	if len(model.SupportedEndpoints) > 0 {
+		cloned.SupportedEndpoints = append([]string(nil), model.SupportedEndpoints...)
+	}
+	if len(model.SupportedInputModalities) > 0 {
+		cloned.SupportedInputModalities = append([]string(nil), model.SupportedInputModalities...)
+	}
+	if len(model.SupportedOutputModalities) > 0 {
+		cloned.SupportedOutputModalities = append([]string(nil), model.SupportedOutputModalities...)
+	}
+	if model.Thinking != nil {
+		thinkingCopy := *model.Thinking
+		if len(model.Thinking.Levels) > 0 {
+			thinkingCopy.Levels = append([]string(nil), model.Thinking.Levels...)
+		}
+		cloned.Thinking = &thinkingCopy
+	}
+	return &cloned
 }
 
 func rewriteModelInfoName(name, oldID, newID string) string {
