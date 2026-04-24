@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,15 @@ import (
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 	"github.com/tidwall/gjson"
 )
+
+func TestCodexCompatibleUpstreamModel(t *testing.T) {
+	if got := codexCompatibleUpstreamModel("gpt-5.5"); got != "gpt-5-codex" {
+		t.Fatalf("compat model = %q, want gpt-5-codex", got)
+	}
+	if got := codexCompatibleUpstreamModel("gpt-5-codex"); got != "gpt-5-codex" {
+		t.Fatalf("existing codex model changed unexpectedly: %q", got)
+	}
+}
 
 func TestNormalizeCodexCompletionEventResponseDone(t *testing.T) {
 	input := []byte(`{"type":"response.done","response":{"id":"resp_1"}}`)
@@ -45,7 +55,9 @@ func TestPatchCodexCompletedOutputReconstructsOutput(t *testing.T) {
 }
 
 func TestCodexExecutorExecuteAcceptsResponseDone(t *testing.T) {
+	var upstreamModel string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamModel = gjson.GetBytes(mustReadAll(t, r.Body), "model").String()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello from codex\"}]}}\n\n")
@@ -79,4 +91,16 @@ func TestCodexExecutorExecuteAcceptsResponseDone(t *testing.T) {
 	if gotType := gjson.GetBytes(resp.Payload, "type").String(); gotType != "response.completed" {
 		t.Fatalf("response type = %q, want response.completed", gotType)
 	}
+	if upstreamModel != "gpt-5-codex" {
+		t.Fatalf("upstream model = %q, want gpt-5-codex", upstreamModel)
+	}
+}
+
+func mustReadAll(t *testing.T, body io.ReadCloser) []byte {
+	t.Helper()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	return data
 }
