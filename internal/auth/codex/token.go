@@ -30,6 +30,8 @@ type CodexTokenStorage struct {
 	Email string `json:"email"`
 	// Type indicates the authentication provider type, always "codex" for this storage.
 	Type string `json:"type"`
+	// APIKey stores the provider-issued API key when the OAuth exchange returns one.
+	APIKey string `json:"api_key,omitempty"`
 	// Expire is the timestamp when the current access token expires.
 	Expire string `json:"expired"`
 

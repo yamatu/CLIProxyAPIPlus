@@ -15,23 +15,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestCodexCompatibleUpstreamModelAPIKey(t *testing.T) {
-	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "test-key"}}
-	if got := codexCompatibleUpstreamModel(auth, "gpt-5.5"); got != "gpt-5-codex" {
-		t.Fatalf("compat model = %q, want gpt-5-codex", got)
-	}
-}
-
-func TestCodexCompatibleUpstreamModelChatGPTAccount(t *testing.T) {
-	auth := &cliproxyauth.Auth{Metadata: map[string]any{"access_token": "test-access-token"}}
-	if got := codexCompatibleUpstreamModel(auth, "gpt-5.5"); got != "gpt-5" {
-		t.Fatalf("compat model = %q, want gpt-5", got)
-	}
-	if got := codexCompatibleUpstreamModel(auth, "gpt-5-codex"); got != "gpt-5" {
-		t.Fatalf("codex model = %q, want gpt-5", got)
-	}
-}
-
 func TestNormalizeCodexCompletionEventResponseDone(t *testing.T) {
 	input := []byte(`{"type":"response.done","response":{"id":"resp_1"}}`)
 	got := normalizeCodexCompletionEvent(input)
@@ -99,12 +82,12 @@ func TestCodexExecutorExecuteAcceptsResponseDone(t *testing.T) {
 	if gotType := gjson.GetBytes(resp.Payload, "type").String(); gotType != "response.completed" {
 		t.Fatalf("response type = %q, want response.completed", gotType)
 	}
-	if upstreamModel != "gpt-5-codex" {
-		t.Fatalf("upstream model = %q, want gpt-5-codex", upstreamModel)
+	if upstreamModel != "gpt-5.5" {
+		t.Fatalf("upstream model = %q, want gpt-5.5", upstreamModel)
 	}
 }
 
-func TestCodexExecutorExecuteMapsChatGPTAccountModel(t *testing.T) {
+func TestCodexExecutorExecutePreservesChatGPTAccountModel(t *testing.T) {
 	var upstreamModel string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamModel = gjson.GetBytes(mustReadAll(t, r.Body), "model").String()
@@ -135,8 +118,8 @@ func TestCodexExecutorExecuteMapsChatGPTAccountModel(t *testing.T) {
 	if _, err := exec.Execute(context.Background(), auth, req, opts); err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if upstreamModel != "gpt-5" {
-		t.Fatalf("upstream model = %q, want gpt-5", upstreamModel)
+	if upstreamModel != "gpt-5.5" {
+		t.Fatalf("upstream model = %q, want gpt-5.5", upstreamModel)
 	}
 }
 

@@ -150,13 +150,12 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), upstreamModel, auth)
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -175,8 +174,8 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	}
 
 	requestedModel := payloadRequestedModel(opts, req.Model)
-	body = applyPayloadConfigWithRoot(e.cfg, upstreamModel, to.String(), "", body, originalTranslated, requestedModel)
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
@@ -360,13 +359,12 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), upstreamModel, auth)
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -379,8 +377,8 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}
 
 	requestedModel := payloadRequestedModel(opts, req.Model)
-	body = applyPayloadConfigWithRoot(e.cfg, upstreamModel, to.String(), "", body, body, requestedModel)
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, body, requestedModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 
 	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
 	wsURL, err := buildCodexResponsesWebsocketURL(httpURL)

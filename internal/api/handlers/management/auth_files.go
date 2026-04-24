@@ -1758,6 +1758,13 @@ func (h *Handler) RequestCodexToken(c *gin.Context) {
 				"account_id": tokenStorage.AccountID,
 			},
 		}
+		if apiKey := strings.TrimSpace(bundle.APIKey); apiKey != "" {
+			if record.Attributes == nil {
+				record.Attributes = make(map[string]string)
+			}
+			record.Attributes["api_key"] = apiKey
+			record.Metadata["api_key"] = apiKey
+		}
 		savedPath, errSave := h.saveTokenRecord(ctx, record)
 		if errSave != nil {
 			SetOAuthSessionError(state, "Failed to save authentication tokens")

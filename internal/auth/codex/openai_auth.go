@@ -17,6 +17,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
 
 // OAuth configuration constants for OpenAI Codex
@@ -158,6 +159,7 @@ func (o *CodexAuth) ExchangeCodeForTokensWithRedirect(ctx context.Context, code,
 
 	// Create auth bundle
 	bundle := &CodexAuthBundle{
+		APIKey:      extractCodexAPIKey(body),
 		TokenData:   tokenData,
 		LastRefresh: time.Now().Format(time.RFC3339),
 	}
@@ -250,10 +252,27 @@ func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStora
 		AccountID:    bundle.TokenData.AccountID,
 		LastRefresh:  bundle.LastRefresh,
 		Email:        bundle.TokenData.Email,
+		APIKey:       strings.TrimSpace(bundle.APIKey),
 		Expire:       bundle.TokenData.Expire,
 	}
 
 	return storage
+}
+
+func extractCodexAPIKey(body []byte) string {
+	candidates := []string{
+		"api_key",
+		"codex_api_key",
+		"apiKey",
+		"api_key_data.key",
+		"codex.api_key",
+	}
+	for _, path := range candidates {
+		if value := strings.TrimSpace(gjson.GetBytes(body, path).String()); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // RefreshTokensWithRetry refreshes tokens with a built-in retry mechanism.

@@ -263,6 +263,11 @@ func (s *FileTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Auth,
 	if email, ok := metadata["email"].(string); ok && email != "" {
 		auth.Attributes["email"] = email
 	}
+	if apiKey, ok := metadata["api_key"].(string); ok {
+		if trimmed := strings.TrimSpace(apiKey); trimmed != "" {
+			auth.Attributes["api_key"] = trimmed
+		}
+	}
 	return auth, nil
 }
 

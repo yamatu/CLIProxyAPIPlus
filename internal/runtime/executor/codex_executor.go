@@ -34,34 +34,6 @@ const (
 
 var dataTag = []byte("data:")
 
-func codexCompatibleUpstreamModel(auth *cliproxyauth.Auth, model string) string {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return model
-	}
-	if codexUsesAPIKeyAuth(auth) {
-		switch model {
-		case "gpt-5.5":
-			return "gpt-5-codex"
-		default:
-			return model
-		}
-	}
-	switch model {
-	case "gpt-5.5", "gpt-5-codex":
-		return "gpt-5"
-	default:
-		return model
-	}
-}
-
-func codexUsesAPIKeyAuth(auth *cliproxyauth.Auth) bool {
-	if auth == nil || auth.Attributes == nil {
-		return false
-	}
-	return strings.TrimSpace(auth.Attributes["api_key"]) != ""
-}
-
 // Streamed Codex responses may emit response.output_item.done events while leaving
 // response.completed.response.output empty. Reconstruct response.output so the
 // non-stream path can still translate a complete final payload.
@@ -168,14 +140,12 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		return e.executeCompact(ctx, auth, req, opts)
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
-
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), upstreamModel, auth)
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -194,15 +164,15 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	}
 
 	requestedModel := payloadRequestedModel(opts, req.Model)
-	body = applyPayloadConfigWithRoot(e.cfg, upstreamModel, to.String(), "", body, originalTranslated, requestedModel)
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	body, _ = sjson.DeleteBytes(body, "stream_options")
 	body = normalizeCodexInstructions(body)
-	body = ensureImageGenerationTool(body, upstreamModel)
+	body = ensureImageGenerationTool(body, baseModel)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -288,14 +258,12 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
-
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), upstreamModel, auth)
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -314,11 +282,11 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	}
 
 	requestedModel := payloadRequestedModel(opts, req.Model)
-	body = applyPayloadConfigWithRoot(e.cfg, upstreamModel, to.String(), "", body, originalTranslated, requestedModel)
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.DeleteBytes(body, "stream")
 	body = normalizeCodexInstructions(body)
-	body = ensureImageGenerationTool(body, upstreamModel)
+	body = ensureImageGenerationTool(body, baseModel)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses/compact"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -381,14 +349,12 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		return nil, statusErr{code: http.StatusBadRequest, msg: "streaming not supported for /responses/compact"}
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	upstreamModel := codexCompatibleUpstreamModel(auth, baseModel)
-
 	apiKey, baseURL := codexCreds(auth)
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), upstreamModel, auth)
+	reporter := newUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.trackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -407,14 +373,14 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	}
 
 	requestedModel := payloadRequestedModel(opts, req.Model)
-	body = applyPayloadConfigWithRoot(e.cfg, upstreamModel, to.String(), "", body, originalTranslated, requestedModel)
+	body = applyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	body, _ = sjson.DeleteBytes(body, "stream_options")
-	body, _ = sjson.SetBytes(body, "model", upstreamModel)
+	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body = normalizeCodexInstructions(body)
-	body = ensureImageGenerationTool(body, upstreamModel)
+	body = ensureImageGenerationTool(body, baseModel)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -852,6 +818,11 @@ func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
 	if a.Attributes != nil {
 		apiKey = a.Attributes["api_key"]
 		baseURL = a.Attributes["base_url"]
+	}
+	if apiKey == "" && a.Metadata != nil {
+		if v, ok := a.Metadata["api_key"].(string); ok {
+			apiKey = v
+		}
 	}
 	if apiKey == "" && a.Metadata != nil {
 		if v, ok := a.Metadata["access_token"].(string); ok {
