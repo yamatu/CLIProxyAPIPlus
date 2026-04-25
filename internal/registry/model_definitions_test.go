@@ -27,6 +27,35 @@ func TestCodexStaticModelsIncludeGPT55(t *testing.T) {
 	assertGPT55ModelInfo(t, "lookup", model)
 }
 
+func TestCodexStaticModelsIncludeGPTImage2(t *testing.T) {
+	tierModels := map[string][]*ModelInfo{
+		"free": GetCodexFreeModels(),
+		"team": GetCodexTeamModels(),
+		"plus": GetCodexPlusModels(),
+		"pro":  GetCodexProModels(),
+	}
+
+	for tier, models := range tierModels {
+		t.Run(tier, func(t *testing.T) {
+			model := findModelInfo(models, "gpt-image-2")
+			if model == nil {
+				t.Fatalf("expected codex %s tier to include gpt-image-2", tier)
+			}
+			if model.DisplayName != "GPT Image 2" {
+				t.Fatalf("display name = %q, want GPT Image 2", model.DisplayName)
+			}
+		})
+	}
+
+	model := LookupStaticModelInfo("gpt-image-2")
+	if model == nil {
+		t.Fatal("expected LookupStaticModelInfo to find gpt-image-2")
+	}
+	if model.Type != "openai" || model.OwnedBy != "openai" {
+		t.Fatalf("unexpected model metadata: %+v", model)
+	}
+}
+
 func findModelInfo(models []*ModelInfo, id string) *ModelInfo {
 	for _, model := range models {
 		if model != nil && model.ID == id {
