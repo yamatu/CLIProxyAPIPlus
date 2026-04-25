@@ -549,6 +549,8 @@ func (h *OpenAIAPIHandler) collectImagesFromResponses(c *gin.Context, responsesR
 
 func collectImagesFromResponsesStream(ctx context.Context, data <-chan []byte, errs <-chan *interfaces.ErrorMessage, responseFormat string) ([]byte, *interfaces.ErrorMessage) {
 	acc := &sseFrameAccumulator{}
+	lastEventType := ""
+	lastStatus := ""
 
 	processFrame := func(frame []byte) ([]byte, bool, *interfaces.ErrorMessage) {
 		for _, line := range bytes.Split(frame, []byte("\n")) {
@@ -567,7 +569,13 @@ func collectImagesFromResponsesStream(ctx context.Context, data <-chan []byte, e
 				return nil, false, &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: fmt.Errorf("invalid SSE data JSON")}
 			}
 
-			if gjson.GetBytes(payload, "type").String() != "response.completed" {
+			lastEventType = gjson.GetBytes(payload, "type").String()
+			lastStatus = gjson.GetBytes(payload, "response.status").String()
+			if err := imageResponsesEventError(payload); err != nil {
+				return nil, false, &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: err}
+			}
+
+			if !isCompletedImageResponsesEvent(lastEventType) {
 				continue
 			}
 
@@ -605,7 +613,7 @@ func collectImagesFromResponsesStream(ctx context.Context, data <-chan []byte, e
 						return out, nil
 					}
 				}
-				return nil, &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: fmt.Errorf("stream disconnected before completion")}
+				return nil, &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: imageResponsesDisconnectError(lastEventType, lastStatus)}
 			}
 			for _, frame := range acc.AddChunk(chunk) {
 				if out, done, errMsg := processFrame(frame); errMsg != nil {
@@ -618,8 +626,69 @@ func collectImagesFromResponsesStream(ctx context.Context, data <-chan []byte, e
 	}
 }
 
+func isCompletedImageResponsesEvent(eventType string) bool {
+	return eventType == "response.completed" || eventType == "response.done"
+}
+
+func imageResponsesEventError(payload []byte) error {
+	eventType := gjson.GetBytes(payload, "type").String()
+	status := gjson.GetBytes(payload, "response.status").String()
+	isFailure := eventType == "response.failed" ||
+		eventType == "response.incomplete" ||
+		eventType == "response.error" ||
+		eventType == "error" ||
+		status == "failed" ||
+		status == "incomplete"
+	if !isFailure {
+		return nil
+	}
+
+	message := firstNonEmptyJSONValue(payload,
+		"error.message",
+		"response.error.message",
+		"response.status_details.error.message",
+		"response.incomplete_details.reason",
+		"response.status_details.reason",
+	)
+	if message == "" {
+		message = "upstream image response failed"
+	}
+	code := firstNonEmptyJSONValue(payload,
+		"error.code",
+		"response.error.code",
+		"response.status_details.error.code",
+	)
+	if code != "" {
+		return fmt.Errorf("%s: %s", message, code)
+	}
+	return fmt.Errorf("%s", message)
+}
+
+func imageResponsesDisconnectError(lastEventType, lastStatus string) error {
+	if lastEventType == "" && lastStatus == "" {
+		return fmt.Errorf("stream disconnected before completion")
+	}
+	if lastStatus == "" {
+		return fmt.Errorf("stream disconnected before completion (last event: %s)", lastEventType)
+	}
+	if lastEventType == "" {
+		return fmt.Errorf("stream disconnected before completion (last status: %s)", lastStatus)
+	}
+	return fmt.Errorf("stream disconnected before completion (last event: %s, last status: %s)", lastEventType, lastStatus)
+}
+
+func firstNonEmptyJSONValue(payload []byte, paths ...string) string {
+	for _, path := range paths {
+		value := strings.TrimSpace(gjson.GetBytes(payload, path).String())
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func extractImagesFromResponsesCompleted(payload []byte) (results []imageCallResult, createdAt int64, usageRaw []byte, firstMeta imageCallResult, err error) {
-	if gjson.GetBytes(payload, "type").String() != "response.completed" {
+	if !isCompletedImageResponsesEvent(gjson.GetBytes(payload, "type").String()) {
 		return nil, 0, nil, imageCallResult{}, fmt.Errorf("unexpected event type")
 	}
 

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
@@ -45,5 +46,53 @@ func TestCollectImagesFromResponsesStreamBuildsImagesAPIResponse(t *testing.T) {
 	}
 	if total := gjson.GetBytes(got, "usage.total_tokens").Int(); total != 3 {
 		t.Fatalf("usage.total_tokens = %d, want 3", total)
+	}
+}
+
+func TestCollectImagesFromResponsesStreamAcceptsResponseDone(t *testing.T) {
+	data := make(chan []byte, 1)
+	errs := make(chan *interfaces.ErrorMessage)
+	data <- []byte(`data: {"type":"response.done","response":{"created_at":1776902400,"output":[{"type":"image_generation_call","result":"abc123"}]}}`)
+	close(data)
+	close(errs)
+
+	got, errMsg := collectImagesFromResponsesStream(context.Background(), data, errs, "b64_json")
+	if errMsg != nil {
+		t.Fatalf("collectImagesFromResponsesStream returned error: %v", errMsg.Error)
+	}
+	if b64 := gjson.GetBytes(got, "data.0.b64_json").String(); b64 != "abc123" {
+		t.Fatalf("b64_json = %q, want abc123", b64)
+	}
+}
+
+func TestCollectImagesFromResponsesStreamReturnsUpstreamFailedError(t *testing.T) {
+	data := make(chan []byte, 1)
+	errs := make(chan *interfaces.ErrorMessage)
+	data <- []byte(`data: {"type":"response.failed","response":{"status":"failed","error":{"message":"image backend unavailable","code":"backend_error"}}}`)
+	close(data)
+	close(errs)
+
+	_, errMsg := collectImagesFromResponsesStream(context.Background(), data, errs, "b64_json")
+	if errMsg == nil {
+		t.Fatal("collectImagesFromResponsesStream returned nil error")
+	}
+	if !strings.Contains(errMsg.Error.Error(), "image backend unavailable") {
+		t.Fatalf("error = %q, want upstream message", errMsg.Error.Error())
+	}
+}
+
+func TestCollectImagesFromResponsesStreamReportsLastEventOnDisconnect(t *testing.T) {
+	data := make(chan []byte, 1)
+	errs := make(chan *interfaces.ErrorMessage)
+	data <- []byte(`data: {"type":"response.output_item.added","response":{"status":"in_progress"}}`)
+	close(data)
+	close(errs)
+
+	_, errMsg := collectImagesFromResponsesStream(context.Background(), data, errs, "b64_json")
+	if errMsg == nil {
+		t.Fatal("collectImagesFromResponsesStream returned nil error")
+	}
+	if !strings.Contains(errMsg.Error.Error(), "response.output_item.added") {
+		t.Fatalf("error = %q, want last event type", errMsg.Error.Error())
 	}
 }
