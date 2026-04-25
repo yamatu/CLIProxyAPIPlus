@@ -56,6 +56,35 @@ func TestCodexStaticModelsIncludeGPTImage2(t *testing.T) {
 	}
 }
 
+func TestCodexStaticModelsIncludeGPT54Mini(t *testing.T) {
+	tierModels := map[string][]*ModelInfo{
+		"free": GetCodexFreeModels(),
+		"team": GetCodexTeamModels(),
+		"plus": GetCodexPlusModels(),
+		"pro":  GetCodexProModels(),
+	}
+
+	for tier, models := range tierModels {
+		t.Run(tier, func(t *testing.T) {
+			model := findModelInfo(models, "gpt-5.4-mini")
+			if model == nil {
+				t.Fatalf("expected codex %s tier to include gpt-5.4-mini", tier)
+			}
+			if model.DisplayName != "GPT 5.4 Mini" {
+				t.Fatalf("display name = %q, want GPT 5.4 Mini", model.DisplayName)
+			}
+		})
+	}
+
+	model := LookupStaticModelInfo("gpt-5.4-mini")
+	if model == nil {
+		t.Fatal("expected LookupStaticModelInfo to find gpt-5.4-mini")
+	}
+	if model.ContextLength != 400000 {
+		t.Fatalf("context length = %d, want 400000", model.ContextLength)
+	}
+}
+
 func findModelInfo(models []*ModelInfo, id string) *ModelInfo {
 	for _, model := range models {
 		if model != nil && model.ID == id {

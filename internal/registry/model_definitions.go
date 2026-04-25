@@ -9,6 +9,7 @@ import (
 const (
 	codexBuiltinImageModelID = "gpt-image-2"
 	codexBuiltinGPT55ModelID = "gpt-5.5"
+	codexBuiltinGPT54MiniID  = "gpt-5.4-mini"
 )
 
 // staticModelsJSON mirrors the top-level structure of models.json.
@@ -97,7 +98,7 @@ func GetAntigravityModels() []*ModelInfo {
 // not depend on remote models.json updates. Built-ins replace any matching IDs
 // already present in the provided slice.
 func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
-	return upsertModelInfos(models, codexBuiltinGPT55ModelInfo(), codexBuiltinImageModelInfo())
+	return upsertModelInfos(models, codexBuiltinGPT55ModelInfo(), codexBuiltinGPT54MiniModelInfo(), codexBuiltinImageModelInfo())
 }
 
 func codexBuiltinGPT55ModelInfo() *ModelInfo {
@@ -111,6 +112,25 @@ func codexBuiltinGPT55ModelInfo() *ModelInfo {
 		Version:             codexBuiltinGPT55ModelID,
 		Description:         "Frontier model for complex coding, research, and real-world work.",
 		ContextLength:       272000,
+		MaxCompletionTokens: 128000,
+		SupportedParameters: []string{"tools"},
+		Thinking: &ThinkingSupport{
+			Levels: []string{"low", "medium", "high", "xhigh"},
+		},
+	}
+}
+
+func codexBuiltinGPT54MiniModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:                  codexBuiltinGPT54MiniID,
+		Object:              "model",
+		Created:             1773705600,
+		OwnedBy:             "openai",
+		Type:                "openai",
+		DisplayName:         "GPT 5.4 Mini",
+		Version:             codexBuiltinGPT54MiniID,
+		Description:         "GPT-5.4 mini brings the strengths of GPT-5.4 to a faster, more efficient model designed for high-volume workloads.",
+		ContextLength:       400000,
 		MaxCompletionTokens: 128000,
 		SupportedParameters: []string{"tools"},
 		Thinking: &ThinkingSupport{
